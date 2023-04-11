@@ -36,7 +36,7 @@ def save_failed_download(url):
     with open(failed_downloads_file, "a") as file:
         file.write(f"{url}\n")
 
-async def download_file_with_retry(session, url, save_path, max_retries=3, delay=5, failed_downloads=None, progress_bar=None, prefix=None):
+async def download_file_with_retry(session, url, save_path, max_retries=2, delay=5, failed_downloads=None, progress_bar=None, prefix=None):
     if os.path.exists(save_path) or (failed_downloads and url in failed_downloads):
         return False, False
 
@@ -56,6 +56,7 @@ async def download_file_with_retry(session, url, save_path, max_retries=3, delay
                         progress_bar.update(1)
                     try:
                         extract_image_from_unity_asset(new_save_path)
+                        os.remove(new_save_path)  # 刪除原始檔
                     except Exception as e:
                         print(f"Error extracting image from {new_save_path}: {e}")
                         return False, True
@@ -68,12 +69,15 @@ async def download_file_with_retry(session, url, save_path, max_retries=3, delay
                         if progress_bar:
                             progress_bar.update(1)
                         return False, True
-        except aiohttp.client_exceptions.ClientConnectionError as e:
+        except (aiohttp.client_exceptions.ClientConnectionError, asyncio.TimeoutError) as e:
             if attempt == max_retries - 1:
-                # 最後一次嘗試失敗，重新拋出異常
-                raise e
+                # 最後一次嘗試失敗，只輸出錯誤信息而不拋出異常
+                print(f"Error: {e}, giving up after {max_retries} attempts.")
+                if progress_bar:
+                    progress_bar.update(1)
+                return False, True
             else:
-                print(f"ClientConnectionError: {e}, retrying in {delay} seconds...")
+                print(f"Error: {e}, retrying in {delay} seconds...")
                 await asyncio.sleep(delay)
 
 async def download_files_for_member(member_number, member_name, session, failed_downloads, progress_bar, semaphore, star_ranks, card_numbers, star_levels):
@@ -89,7 +93,7 @@ async def download_files_for_member(member_number, member_name, session, failed_
                 url_card = base_url_card + file_name
                 save_path_card = os.path.join(member_folder, file_name)
                 tasks.append(download_file_with_retry(session, url_card, save_path_card, failed_downloads=failed_downloads, progress_bar=progress_bar, prefix="card_"))
-    
+            
                 url_photo = base_url_photo + file_name
                 save_path_photo = os.path.join(member_folder, file_name)
                 tasks.append(download_file_with_retry(session, url_photo, save_path_photo, failed_downloads=failed_downloads, progress_bar=progress_bar, prefix="photo_"))
@@ -102,7 +106,7 @@ async def download_files_for_member(member_number, member_name, session, failed_
     return member_number, member_name, new_downloads, failed_downloads_count
 
 async def main():
-    semaphore = asyncio.Semaphore(10)
+    semaphore = asyncio.Semaphore(3)
     members = {
         "01": "秋元真夏",
         "12": "齋藤飛鳥",
@@ -149,7 +153,7 @@ async def main():
         "74": "中西アルノ",
     }
     star_ranks = ["41"]
-    card_numbers = [str(i).zfill(4) for i in range(0, 500)]
+    card_numbers = [str(i).zfill(4) for i in range(0, 1000)]
     star_levels = ["001", "002"]
 
     failed_downloads = load_failed_downloads()
@@ -157,7 +161,7 @@ async def main():
     total_downloads = len(members) * len(star_ranks) * len(card_numbers) * len(star_levels)
     progress_bar = tqdm(total=total_downloads, ncols=100)
 
-    async with ClientSession() as session:
+    async with ClientSession(timeout=aiohttp.ClientTimeout(total=60)) as session:
         download_results = await asyncio.gather(*[download_files_for_member(member_number, member_name, session, failed_downloads, progress_bar, semaphore, star_ranks, card_numbers, star_levels) for member_number, member_name in members.items()])
 
     progress_bar.close()
