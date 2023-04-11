@@ -26,7 +26,6 @@ def extract_image_from_unity_asset(asset_path):
             resize_image(new_file_path, (900, 1200))
             print(f"Extracted image saved to {new_file_path}")
 
-
 def load_failed_downloads():
     if os.path.exists(failed_downloads_file):
         with open(failed_downloads_file, "r") as file:
@@ -37,39 +36,51 @@ def save_failed_download(url):
     with open(failed_downloads_file, "a") as file:
         file.write(f"{url}\n")
 
-async def download_file(url, save_path, session, failed_downloads, progress_bar, prefix):
-    if os.path.exists(save_path) or url in failed_downloads:
+async def download_file_with_retry(session, url, save_path, max_retries=3, delay=5, failed_downloads=None, progress_bar=None, prefix=None):
+    if os.path.exists(save_path) or (failed_downloads and url in failed_downloads):
         return False, False
 
-    async with session.get(url) as response:
-        if response.status == 200:
-            content = await response.read()
-            with open(save_path, "wb") as file:
-                file.write(content)
+    for attempt in range(max_retries):
+        try:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    content = await response.read()
+                    with open(save_path, "wb") as file:
+                        file.write(content)
 
-            new_save_path = os.path.join(os.path.dirname(save_path), prefix + os.path.basename(save_path))
-            os.rename(save_path, new_save_path)
+                    new_save_path = os.path.join(os.path.dirname(save_path), prefix + os.path.basename(save_path))
+                    os.rename(save_path, new_save_path)
 
-            progress_bar.set_description(f"Downloading {new_save_path}")
-            progress_bar.update(1)
-            try:
-                extract_image_from_unity_asset(new_save_path)
-            except Exception as e:
-                print(f"Error extracting image from {new_save_path}: {e}")
-                return False, True
+                    if progress_bar:
+                        progress_bar.set_description(f"Downloading {new_save_path}")
+                        progress_bar.update(1)
+                    try:
+                        extract_image_from_unity_asset(new_save_path)
+                    except Exception as e:
+                        print(f"Error extracting image from {new_save_path}: {e}")
+                        return False, True
 
-            return True, False
-        else:
-            save_failed_download(url)
-            progress_bar.update(1)
-            return False, True
+                    return True, False
+                else:
+                    if attempt == max_retries - 1:
+                        if failed_downloads:
+                            save_failed_download(url)
+                        if progress_bar:
+                            progress_bar.update(1)
+                        return False, True
+        except aiohttp.client_exceptions.ClientConnectionError as e:
+            if attempt == max_retries - 1:
+                # 最後一次嘗試失敗，重新拋出異常
+                raise e
+            else:
+                print(f"ClientConnectionError: {e}, retrying in {delay} seconds...")
+                await asyncio.sleep(delay)
 
 async def download_files_for_member(member_number, member_name, session, failed_downloads, progress_bar, semaphore, star_ranks, card_numbers, star_levels):
     base_url_card = "https://res.nogizaka46-always.emtg.jp/asset/1.1.424/Android/card/card/card_"
     base_url_photo = "https://res.nogizaka46-always.emtg.jp/asset/1.1.424/Android/card/photo/photo_"
     member_folder = f"member_{member_number}_{member_name}"
     os.makedirs(member_folder, exist_ok=True)
-
     tasks = []
     for star_rank in star_ranks:
         for card_number in card_numbers:
@@ -77,19 +88,18 @@ async def download_files_for_member(member_number, member_name, session, failed_
                 file_name = f"{star_rank}{card_number}{member_number}{star_level}.png"
                 url_card = base_url_card + file_name
                 save_path_card = os.path.join(member_folder, file_name)
-                tasks.append(download_file(url_card, save_path_card, session, failed_downloads, progress_bar, "card_"))
-
+                tasks.append(download_file_with_retry(session, url_card, save_path_card, failed_downloads=failed_downloads, progress_bar=progress_bar, prefix="card_"))
+    
                 url_photo = base_url_photo + file_name
                 save_path_photo = os.path.join(member_folder, file_name)
-                tasks.append(download_file(url_photo, save_path_photo, session, failed_downloads, progress_bar, "photo_"))
-
+                tasks.append(download_file_with_retry(session, url_photo, save_path_photo, failed_downloads=failed_downloads, progress_bar=progress_bar, prefix="photo_"))
+    
     async with semaphore:
         results, failures = zip(*await asyncio.gather(*tasks))
-
+    
     new_downloads = sum(results)
     failed_downloads_count = sum(failures)
     return member_number, member_name, new_downloads, failed_downloads_count
-
 
 async def main():
     semaphore = asyncio.Semaphore(10)
@@ -138,7 +148,6 @@ async def main():
         "73": "冨里奈央",
         "74": "中西アルノ",
     }
-
     star_ranks = ["41"]
     card_numbers = [str(i).zfill(4) for i in range(0, 500)]
     star_levels = ["001", "002"]
@@ -155,6 +164,6 @@ async def main():
 
     for member_number, member_name, new_downloads, failed_downloads_count in download_results:
         print(f"Member {member_number} ({member_name}) downloaded {new_downloads} new cards, with {failed_downloads_count}failed attempts.")
-
+    
 if __name__ == "__main__":
     asyncio.run(main())
