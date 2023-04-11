@@ -64,7 +64,7 @@ async def download_file(url, save_path, session, failed_downloads, progress_bar,
             progress_bar.update(1)
             return False, True
 
-async def download_files_for_member(member_number, member_name, session, failed_downloads, progress_bar, star_ranks, card_numbers, star_levels):
+async def download_files_for_member(member_number, member_name, session, failed_downloads, progress_bar, semaphore, star_ranks, card_numbers, star_levels):
     base_url_card = "https://res.nogizaka46-always.emtg.jp/asset/1.1.424/Android/card/card/card_"
     base_url_photo = "https://res.nogizaka46-always.emtg.jp/asset/1.1.424/Android/card/photo/photo_"
     member_folder = f"member_{member_number}_{member_name}"
@@ -83,12 +83,16 @@ async def download_files_for_member(member_number, member_name, session, failed_
                 save_path_photo = os.path.join(member_folder, file_name)
                 tasks.append(download_file(url_photo, save_path_photo, session, failed_downloads, progress_bar, "photo_"))
 
-    results, failures = zip(*await asyncio.gather(*tasks))
+    async with semaphore:
+        results, failures = zip(*await asyncio.gather(*tasks))
+
     new_downloads = sum(results)
     failed_downloads_count = sum(failures)
     return member_number, member_name, new_downloads, failed_downloads_count
 
+
 async def main():
+    semaphore = asyncio.Semaphore(10)
     members = {
         "01": "秋元真夏",
         "12": "齋藤飛鳥",
@@ -135,7 +139,7 @@ async def main():
         "74": "中西アルノ",
     }
 
-    star_ranks = ["11","21","31","41"]
+    star_ranks = ["41"]
     card_numbers = [str(i).zfill(4) for i in range(0, 1700)]
     star_levels = ["001", "002"]
 
@@ -145,7 +149,7 @@ async def main():
     progress_bar = tqdm(total=total_downloads, ncols=100)
 
     async with ClientSession() as session:
-        download_results = await asyncio.gather(*[download_files_for_member(member_number, member_name, session, failed_downloads, progress_bar, star_ranks, card_numbers, star_levels) for member_number, member_name in members.items()])
+        download_results = await asyncio.gather(*[download_files_for_member(member_number, member_name, session, failed_downloads, progress_bar, semaphore, star_ranks, card_numbers, star_levels) for member_number, member_name in members.items()])
 
     progress_bar.close()
 
