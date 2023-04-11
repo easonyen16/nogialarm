@@ -140,7 +140,7 @@ async def main():
     }
 
     star_ranks = ["41"]
-    card_numbers = [str(i).zfill(4) for i in range(0, 1700)]
+    card_numbers = [str(i).zfill(4) for i in range(0, 500)]
     star_levels = ["001", "002"]
 
     failed_downloads = load_failed_downloads()
