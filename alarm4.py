@@ -16,36 +16,14 @@ def resize_image(image_path, new_size):
         img_resized.save(image_path)
 
 def extract_image_from_unity_asset(asset_path):
-    # 使用 UnityPy 加载资源
-    #print("开始提取纹理")
     env = UnityPy.load(asset_path)
-
-    # 遍历资源中的所有对象
     for obj in env.objects:
-        # 输出对象的类型名称
-        #print(f"Object type name: {obj.type.name}")
-
-        # 如果对象是纹理类型（Texture2D）
         if obj.type.name == "Texture2D":
-            # 解析纹理数据
             texture = obj.read()
-
-            # 输出纹理对象的详细信息
-            #print(f"Texture Name: {texture.name}")
-            #print(f"Texture Format: {TextureFormat(texture.m_TextureFormat).name}")
-            #print(f"Texture Dimensions: {texture.m_Width}x{texture.m_Height}")
-
-            # 获取纹理对应的 PIL Image 对象
             image = texture.image
-
-            # 为导出的图像创建新的文件名
             new_file_path = os.path.splitext(asset_path)[0] + "_extracted.png"
-            # 保存图像数据到文件
             image.save(new_file_path)
-
-            # 重新调整图片大小
             resize_image(new_file_path, (900, 1200))
-
             print(f"Extracted image saved to {new_file_path}")
 
 
@@ -59,7 +37,7 @@ def save_failed_download(url):
     with open(failed_downloads_file, "a") as file:
         file.write(f"{url}\n")
 
-async def download_file(url, save_path, session, failed_downloads, progress_bar):
+async def download_file(url, save_path, session, failed_downloads, progress_bar, prefix):
     if os.path.exists(save_path) or url in failed_downloads:
         return False, False
 
@@ -68,14 +46,16 @@ async def download_file(url, save_path, session, failed_downloads, progress_bar)
             content = await response.read()
             with open(save_path, "wb") as file:
                 file.write(content)
-            progress_bar.set_description(f"Downloading {save_path}")
-            progress_bar.update(1)
 
-            # 提取 Unity 资源中的图像
+            new_save_path = os.path.join(os.path.dirname(save_path), prefix + os.path.basename(save_path))
+            os.rename(save_path, new_save_path)
+
+            progress_bar.set_description(f"Downloading {new_save_path}")
+            progress_bar.update(1)
             try:
-                extract_image_from_unity_asset(save_path)
+                extract_image_from_unity_asset(new_save_path)
             except Exception as e:
-                print(f"Error extracting image from {save_path}: {e}")
+                print(f"Error extracting image from {new_save_path}: {e}")
                 return False, True
 
             return True, False
@@ -84,10 +64,9 @@ async def download_file(url, save_path, session, failed_downloads, progress_bar)
             progress_bar.update(1)
             return False, True
 
-
-
 async def download_files_for_member(member_number, member_name, session, failed_downloads, progress_bar, star_ranks, card_numbers, star_levels):
-    base_url = "https://res.nogizaka46-always.emtg.jp/asset/1.1.424/Android/card/card/card_"
+    base_url_card = "https://res.nogizaka46-always.emtg.jp/asset/1.1.424/Android/card/card/card_"
+    base_url_photo = "https://res.nogizaka46-always.emtg.jp/asset/1.1.424/Android/card/photo/photo_"
     member_folder = f"member_{member_number}_{member_name}"
     os.makedirs(member_folder, exist_ok=True)
 
@@ -96,9 +75,13 @@ async def download_files_for_member(member_number, member_name, session, failed_
         for card_number in card_numbers:
             for star_level in star_levels:
                 file_name = f"{star_rank}{card_number}{member_number}{star_level}.png"
-                url = base_url + file_name
-                save_path = os.path.join(member_folder, file_name)
-                tasks.append(download_file(url, save_path, session, failed_downloads, progress_bar))
+                url_card = base_url_card + file_name
+                save_path_card = os.path.join(member_folder, file_name)
+                tasks.append(download_file(url_card, save_path_card, session, failed_downloads, progress_bar, "card_"))
+
+                url_photo = base_url_photo + file_name
+                save_path_photo = os.path.join(member_folder, file_name)
+                tasks.append(download_file(url_photo, save_path_photo, session, failed_downloads, progress_bar, "photo_"))
 
     results, failures = zip(*await asyncio.gather(*tasks))
     new_downloads = sum(results)
@@ -107,13 +90,53 @@ async def download_files_for_member(member_number, member_name, session, failed_
 
 async def main():
     members = {
-        "01": "秋元",
-        "12": "斋藤",
-        "20": "铃木",
+        "01": "秋元真夏",
+        "12": "齋藤飛鳥",
+        "20": "鈴木絢音",
+        "27": "樋口日奈",
+        "34": "和田まあや",
+        "35": "伊藤理々杏",
+        "36": "岩本蓮加",
+        "37": "梅澤美波",
+        "39": "久保史緒里",
+        "40": "阪口珠美",
+        "41": "佐藤楓",
+        "42": "中村麗乃",
+        "43": "向井葉月",
+        "44": "山下美月",
+        "45": "吉田綾乃クリスティー",
+        "46": "与田祐希",
+        "48": "遠藤さくら",
+        "49": "賀喜遥香",
+        "50": "掛橋沙耶香",
+        "51": "金川紗耶",
+        "52": "北川悠理",
+        "53": "柴田柚菜",
+        "54": "清宮レイ",
+        "55": "田村真佑",
+        "56": "筒井あやめ",
+        "57": "早川聖来",
+        "58": "矢久保美緒",
+        "59": "黒見明香",
+        "60": "佐藤璃果",
+        "61": "林瑠奈",
+        "62": "松尾美佑",
+        "63": "弓木奈於",
+        "64": "五百城茉央",
+        "65": "池田瑛紗",
+        "66": "一ノ瀬美空",
+        "67": "井上和",
+        "68": "岡本姫奈",
+        "69": "小川彩",
+        "70": "奥田いろは",
+        "71": "川﨑桜",
+        "72": "菅原咲月",
+        "73": "冨里奈央",
+        "74": "中西アルノ",
     }
 
-    star_ranks = ["41"]
-    card_numbers = [str(i).zfill(4) for i in range(0, 100)]
+    star_ranks = ["11","21","31","41"]
+    card_numbers = [str(i).zfill(4) for i in range(0, 1700)]
     star_levels = ["001", "002"]
 
     failed_downloads = load_failed_downloads()
